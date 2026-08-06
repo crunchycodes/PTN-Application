@@ -136,6 +136,13 @@
 
   <script>
     const apiUrl = 'https://api.perpheads.com/v2/data/crafting';
+    const seedItems = [
+      { id: '1', name: 'Radio', category: 'Furniture', cost: 1500, shops: ["Ching's Convenience Store", 'RagnaTech', 'Puffer Mart'] },
+      { id: '2', name: 'Canned Food', category: 'Supplies', cost: 240, shops: ['RagnaTech', 'Puffer Mart'] },
+      { id: '3', name: 'Metal Scrap', category: 'Materials', cost: 320, shops: ['Ching\'s Convenience Store', 'RagnaTech'] },
+      { id: '4', name: 'Battery', category: 'Electronics', cost: 850, shops: ['Puffer Mart', 'RagnaTech'] },
+      { id: '5', name: 'Water Bottle', category: 'Supplies', cost: 180, shops: ['Ching\'s Convenience Store', 'Puffer Mart'] }
+    ];
     const profileInputs = {
       characterName: document.getElementById('characterName'),
       steamName: document.getElementById('steamName'),
@@ -184,10 +191,10 @@
     };
 
     const fetchItems = async () => {
-      itemStatus.textContent = 'Loading craft items from the API…';
+      itemStatus.textContent = 'Loading craft items…';
       itemTableBody.innerHTML = '';
       try {
-        const response = await fetch(apiUrl);
+        const response = await fetch(apiUrl, { mode: 'cors' });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         items = Object.entries(data)
@@ -201,9 +208,11 @@
           .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
         renderItems();
-        itemStatus.textContent = `Showing ${items.length} items. Enter your sell price in the right-hand column.`;
+        itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
       } catch (error) {
-        itemStatus.innerHTML = `Could not load items: ${error.message}. Please refresh or check your network.`;
+        items = seedItems.map(item => ({ ...item, cost: Number(item.cost) }));
+        renderItems();
+        itemStatus.innerHTML = `Direct API access is blocked by CORS in the browser, so a starter item list is being used instead. ${escapeHtml(error.message)}`;
       }
     };
 
