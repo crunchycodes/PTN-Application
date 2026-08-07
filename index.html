@@ -91,7 +91,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
       <div>
         <h2 style="margin:0;">2. Craft Item Pricing</h2>
-        <div class="small">Uses live craft data from the Perpheads API.</div>
+        <div class="small">Uses your local crafting backup first, with the live API as a fallback.</div>
       </div>
       <div class="actions" style="margin-top:0;">
         <button id="refreshButton" class="secondary">Refresh item list</button>
@@ -136,6 +136,7 @@
 
   <script>
     const apiUrl = 'https://api.perpheads.com/v2/data/crafting';
+    const localDataUrl = './craftingdata.json';
     const seedItems = [
       { id: '1', name: 'Radio', category: 'Furniture', cost: 1500, shops: ["Ching's Convenience Store", 'RagnaTech', 'Puffer Mart'] },
       { id: '2', name: 'Canned Food', category: 'Supplies', cost: 240, shops: ['RagnaTech', 'Puffer Mart'] },
@@ -193,26 +194,37 @@
     const fetchItems = async () => {
       itemStatus.textContent = 'Loading craft items…';
       itemTableBody.innerHTML = '';
-      try {
-        const response = await fetch(apiUrl, { mode: 'cors' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        items = Object.entries(data)
-          .map(([id, item]) => ({
-            id,
-            name: item.Name || '',
-            category: item.Category || '',
-            cost: item.Cost != null ? Number(item.Cost) : null,
-            shops: Array.isArray(item.Shops) ? item.Shops : [],
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
+      const parseItems = data => Object.entries(data)
+        .map(([id, item]) => ({
+          id,
+          name: item.Name || '',
+          category: item.Category || '',
+          cost: item.Cost != null ? Number(item.Cost) : null,
+          shops: Array.isArray(item.Shops) ? item.Shops : [],
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+      try {
+        const localResponse = await fetch(localDataUrl, { cache: 'no-store' });
+        if (!localResponse.ok) throw new Error(`Local data unavailable (${localResponse.status})`);
+        const localData = await localResponse.json();
+        items = parseItems(localData);
         renderItems();
-        itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
-      } catch (error) {
-        items = seedItems.map(item => ({ ...item, cost: Number(item.cost) }));
-        renderItems();
-        itemStatus.innerHTML = `Direct API access is blocked by CORS in the browser, so a starter item list is being used instead. ${escapeHtml(error.message)}`;
+        itemStatus.textContent = `Showing ${items.length} items from your local crafting backup. Enter your sell price in the right-hand column.`;
+      } catch (localError) {
+        try {
+          const apiResponse = await fetch(apiUrl, { cache: 'no-store' });
+          if (!apiResponse.ok) throw new Error(`API unavailable (${apiResponse.status})`);
+          const apiData = await apiResponse.json();
+          items = parseItems(apiData);
+          renderItems();
+          itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
+        } catch (apiError) {
+          items = seedItems.map(item => ({ ...item, cost: Number(item.cost) }));
+          renderItems();
+          itemStatus.innerHTML = `Unable to load the local backup or the live API, so a starter item list is being used instead. ${escapeHtml(localError.message)} • ${escapeHtml(apiError.message)}`;
+        }
       }
     };
 
