@@ -105,6 +105,39 @@
       </label>
     </div>
 
+    <!-- Weapon Builder Panel (integrated) -->
+    <section class="panel" id="weapon-builder-panel" style="margin-top:1rem;">
+      <h2>Weapon Builder</h2>
+      <div class="grid grid-3">
+        <label>
+          Weapon
+          <select id="wb-weapon">
+            <option value="">-- Select Weapon --</option>
+          </select>
+        </label>
+        <label>
+          Ammo / Magazine
+          <select id="wb-ammo" disabled>
+            <option value="">-- Select Weapon First --</option>
+          </select>
+        </label>
+        <label>
+          Stock
+          <select id="wb-stock" disabled>
+            <option value="">-- Select Weapon First --</option>
+          </select>
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:1rem;margin-top:0.75rem;flex-wrap:wrap;">
+        <label class="small" style="margin:0;"><input type="checkbox" id="wb-loaded-ammo"> Loaded Ammo</label>
+        <div class="actions" style="margin:0;">
+          <button id="wb-add-build">Add build to item list</button>
+        </div>
+      </div>
+      <div class="status small" id="wb-status" style="margin-top:0.5rem;">Weapon Builder ready.</div>
+    </section>
+
     <div class="status" id="itemStatus">Loading items…</div>
     <div class="table-wrap" style="margin-top:1rem;">
       <table>
@@ -364,8 +397,163 @@
     refreshButton.addEventListener('click', fetchItems);
     Object.values(profileInputs).forEach(input => input.addEventListener('input', saveState));
 
+    // --- existing app state init ---
     loadState();
     fetchItems();
+
+    // --- Weapon Builder integration ---
+    const weaponSpecs = {
+      "AK-101": { core: "AK-101", caliber: "5.56x45", type: "Assault Rifle" },
+      "AK-47": { core: "AK-47", caliber: "7.62x39", type: "Assault Rifle" },
+      "AK-74U": { core: "AK-74U", caliber: "5.45x39", type: "Assault Rifle" },
+      "Colt M16A4": { core: "M16", caliber: "5.56x45", type: "Assault Rifle" },
+      "Colt M4A1": { core: "M4A1", caliber: "5.56x45", type: "Assault Rifle" },
+      "Enfield L85A2": { core: "L85", caliber: "5.56x45", type: "Assault Rifle" },
+      "FN SCAR-L": { core: "SCAR-L", caliber: "5.56x45", type: "Assault Rifle" },
+      "HK G36C": { core: "G36C", caliber: "5.56x45", type: "Assault Rifle" },
+      "HK G3A3": { core: "G3A3", caliber: "7.62x51", type: "Assault Rifle" },
+      "Nexter FAMAS G2": { core: "FAMAS", caliber: "5.56x45", type: "Assault Rifle" },
+      "Sako M92S": { core: "Sako", caliber: "7.62x39", type: "Assault Rifle" },
+      "Sig Sauer SG550": { core: "SG550", caliber: "5.56x45", type: "Assault Rifle" },
+      "Steyr AUG A3": { core: "AUG", caliber: "5.56x45", type: "Assault Rifle" },
+      "Beretta M9": { core: "M9", caliber: "9x19", type: "Pistol" },
+      "Glock 17": { core: "Glock 17", caliber: "9x19", type: "Pistol" },
+      "Glock 18C": { core: "Glock 18C", caliber: "9x19", type: "Pistol" },
+      "Glock 20": { core: "Glock 20", caliber: "10x25", type: "Pistol" },
+      "HK USP40": { core: "USP40", caliber: "10x22", type: "Pistol" },
+      "IMI Desert Eagle Mark XIX": { core: "Desert Eagle", caliber: "12.7x33", type: "Pistol" },
+      "MP5": { core: "MP5", caliber: "9x19", type: "Machine Gun" },
+      "MP7": { core: "MP7", caliber: "4.6x30", type: "Machine Gun" },
+      "Remington M24": { core: "M24", caliber: "7.62x51", type: "Sniper" },
+      "Barrett M82": { core: "M82", caliber: "12.7x99", type: "Sniper" }
+    };
+
+    const capacities = {
+      "Walther PPK": 7, "Makarov PM": 8, "Luger P.08": 8, "Beretta M9": 15,
+      "Glock 17": 17, "USP40": 13, "M1911A1": 7, "HK45 CT": 10, "P226": 13,
+      "Walther P99": 12, "Glock 20": 15, "Desert Eagle": 7, "OTs-33 Pernach": 18,
+      "Glock 18C": 19, "MAC-11": 32, "MP5K": 20, "MP5": 30, "UZI": 32,
+      "MP5/10": 30, "AK-74U": 30, "SG550": 30, "UMP45": 25, "Sako M92S": 30,
+      "G36C": 30, "AK-47": 30, "AK-101": 30, "SR-25": 10, "M14": 20, "G3A3": 20,
+      "L115A3": 5, "M82": 5, "AS50": 5, "MP9": 20, "MP7": 20,
+      "Remington M24": 5,
+      "Taurus 605": 5, "SW Model 500": 5,
+      "Colt Python": 6, "SW Model 19": 6, "SW Model 29": 6, "Colt Anaconda": 6, "Taurus Raging Bull": 6,
+      "Sawed-Off Shotgun": 2, "Double Barreled Shotgun": 2,
+      "Remington 870 Short": 6, "Remington 870": 6, "Mossberg 590A1": 9,
+      "Franchi SPAS-12": 8, "Benelli M3 Super 90": 8
+    };
+
+    function initWeaponBuilder() {
+      const wbWeapon = document.getElementById('wb-weapon');
+      const wbAmmo = document.getElementById('wb-ammo');
+      const wbStock = document.getElementById('wb-stock');
+      const wbLoaded = document.getElementById('wb-loaded-ammo');
+      const wbAdd = document.getElementById('wb-add-build');
+      const wbStatus = document.getElementById('wb-status');
+
+      // populate weapon options
+      Object.keys(weaponSpecs).sort().forEach(name => {
+        const o = document.createElement('option');
+        o.value = name;
+        o.textContent = name;
+        wbWeapon.appendChild(o);
+      });
+
+      // wait until items are available then refresh select options
+      const waitForItems = setInterval(() => {
+        if (Array.isArray(items) && items.length > 0) {
+          clearInterval(waitForItems);
+          wbStatus.textContent = 'Weapon Builder ready — choose a weapon.';
+        }
+      }, 250);
+
+      wbWeapon.addEventListener('change', () => {
+        const sel = wbWeapon.value;
+        wbAmmo.innerHTML = '';
+        wbStock.innerHTML = '';
+        if (!sel) {
+          wbAmmo.disabled = true; wbStock.disabled = true; return;
+        }
+        const spec = weaponSpecs[sel] || { core: sel };
+        const core = (spec.core || sel).toLowerCase();
+
+        // populate ammo options: try to match by name or category
+        const ammoList = items.filter(it => {
+          const n = (it.name || '').toLowerCase();
+          const c = (it.category || '').toLowerCase();
+          return n.includes(core) || c.includes('ammo') || c.includes('mag');
+        });
+        if (ammoList.length) {
+          wbAmmo.disabled = false;
+          const placeholder = document.createElement('option'); placeholder.value=''; placeholder.textContent='-- Select Ammo --'; wbAmmo.appendChild(placeholder);
+          ammoList.forEach(it => { const o=document.createElement('option'); o.value=it.id; o.textContent = it.name; wbAmmo.appendChild(o); });
+        } else {
+          wbAmmo.disabled = true; const o=document.createElement('option'); o.textContent='-- No matching ammo found --'; wbAmmo.appendChild(o);
+        }
+
+        // populate stock options
+        const stockList = items.filter(it => {
+          const n = (it.name || '').toLowerCase();
+          const c = (it.category || '').toLowerCase();
+          return n.includes('stock') || c.includes('stock') || n.includes(core + ' stock');
+        });
+        if (stockList.length) {
+          wbStock.disabled = false;
+          const placeholder = document.createElement('option'); placeholder.value=''; placeholder.textContent='-- Select Stock --'; wbStock.appendChild(placeholder);
+          stockList.forEach(it => { const o=document.createElement('option'); o.value=it.id; o.textContent = it.name; wbStock.appendChild(o); });
+        } else {
+          wbStock.disabled = true; const o=document.createElement('option'); o.textContent='-- No matching stock found --'; wbStock.appendChild(o);
+        }
+      });
+
+      wbAdd.addEventListener('click', () => {
+        const weaponName = wbWeapon.value;
+        if (!weaponName) { wbStatus.textContent = 'Select a weapon first.'; return; }
+        const ammoId = wbAmmo.value;
+        const stockId = wbStock.value;
+        // find selected items
+        const selectedAmmo = items.find(i => i.id == ammoId);
+        const selectedStock = items.find(i => i.id == stockId);
+
+        // compute component prices: prefer customPrices (user-entered sell price) if available, otherwise craft cost
+        const getPriceFor = it => {
+          if (!it) return 0;
+          if (customPrices && customPrices[it.id] != null) return Number(customPrices[it.id]);
+          return (it.cost != null) ? Number(it.cost) : 0;
+        };
+
+        let subtotal = 0;
+        if (selectedStock) subtotal += getPriceFor(selectedStock);
+        if (selectedAmmo) {
+          let ammoPrice = getPriceFor(selectedAmmo);
+          if (wbLoaded.checked) {
+            // if weapon has a known capacity, assume ammo price is per-round and multiply by capacity
+            const core = (weaponSpecs[weaponName] && weaponSpecs[weaponName].core) || weaponName;
+            const cap = capacities[core] || capacities[weaponName] || null;
+            if (cap) ammoPrice = ammoPrice * cap;
+          }
+          subtotal += ammoPrice;
+        }
+
+        // create a composed item entry
+        const customId = 'custom-' + Date.now();
+        const customName = `${weaponName} (Custom Build)`;
+        const newItem = {
+          id: customId,
+          name: customName,
+          category: 'Custom Build',
+          cost: Math.round(subtotal),
+          shops: ['Custom Build']
+        };
+        items.push(newItem);
+        renderItems();
+        wbStatus.textContent = `Added ${customName} — cost ${newItem.cost}. Enter your sell price in the table.`;
+      });
+    }
+
+    // initialize builder after items load
+    initWeaponBuilder();
   </script>
 </body>
 </html>
