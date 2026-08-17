@@ -145,7 +145,9 @@
           <tr>
             <th>Item</th>
             <th>Category</th>
-              <th>Suggested Price</th>
+            <th>Materials</th>
+            <th>Craft Cost</th>
+            <th>Loaded</th>
             <th>Shops</th>
             <th>Your Sell Price</th>
           </tr>
@@ -416,6 +418,7 @@
 
         // prepare materials toggle markup
         let materialsHtml = '';
+        let loadedInfoHtml = '';
         if (craftingDataRaw && craftingDataRaw[item.id] && craftingDataRaw[item.id].Ingredients && Object.keys(craftingDataRaw[item.id].Ingredients).length > 0) {
           const breakdown = getMaterialsBreakdown(item.id);
           const parts = Object.entries(breakdown).map(([matId, qty]) => {
@@ -514,17 +517,19 @@
             }
           }
 
-          materialsHtml = `\n              <div class="small-table">\n                <a href="#" class="toggle-materials" data-id="${escapeHtml(item.id)}">Show materials & craft cost</a>\n                <div class="materials" data-id="${escapeHtml(item.id)}" style="display:none;margin-top:6px;">\n                  <div class="small-table">Crafting cost: ${Number(craftCost).toLocaleString()}</div>\n                  ${loadedInfoHtml}\n                  <ul class="small-table" style="margin:6px 0 0 1rem;">${parts}</ul>\n                </div>\n              </div>`;
+          materialsHtml = `\n              <div class="small-table">\n                <a href="#" class="toggle-materials" data-id="${escapeHtml(item.id)}">Show materials</a>\n                <div class="materials" data-id="${escapeHtml(item.id)}" style="display:none;margin-top:6px;">\n                  <ul class="small-table" style="margin:6px 0 0 1rem;">${parts}</ul>\n                </div>\n              </div>`;
         }
 
         return `
           <tr>
             <td>
               <strong>${escapeHtml(item.name)}</strong>
-              <div class="small-table">ID: ${escapeHtml(item.id)}${materialsHtml}</div>
+              <div class="small-table">ID: ${escapeHtml(item.id)}</div>
             </td>
             <td>${escapeHtml(item.category)}</td>
-            <td>${item.cost != null ? item.cost.toLocaleString() : '—'}</td>
+            <td>${materialsHtml || '—'}</td>
+            <td>${craftCost != null ? Number(craftCost).toLocaleString() : '—'}</td>
+            <td>${loadedInfoHtml || '—'}</td>
             <td>${escapeHtml(shopsLabel)}</td>
             <td>
               <input type="number" min="0" step="1" data-item-id="${escapeHtml(item.id)}" value="${value}" placeholder="Enter sell price" />
@@ -532,7 +537,7 @@
           </tr>`;
       }).join('');
       if (!visibleItems.length) {
-        itemTableBody.innerHTML = '<tr><td colspan="5" class="small-table">No matching items found. Try a different search term.</td></tr>';
+        itemTableBody.innerHTML = '<tr><td colspan="7" class="small-table">No matching items found. Try a different search term.</td></tr>';
       }
       attachPriceListeners();
       // attach toggle handlers for materials links
