@@ -145,7 +145,7 @@
           <tr>
             <th>Item</th>
             <th>Category</th>
-            <th>Craft Cost</th>
+              <th>Suggested Price</th>
             <th>Shops</th>
             <th>Your Sell Price</th>
           </tr>
@@ -197,6 +197,64 @@
 
     let items = [];
     let customPrices = {};
+    // Keep the raw crafting dataset (id -> raw entry) so we can compute craft costs from Ingredients
+    let craftingDataRaw = {};
+    const craftCostCache = {};
+
+    function computeCraftCostById(id, cache = craftCostCache, seen = new Set()) {
+      if (cache[id] != null) return cache[id];
+      if (seen.has(id)) return 0; // avoid cycles
+      seen.add(id);
+
+      const raw = craftingDataRaw[id];
+      // fallback to items array entry if raw data missing
+      if (!raw) {
+        const it = items.find(x => String(x.id) === String(id));
+        const val = it && it.cost != null ? Number(it.cost) : 0;
+        cache[id] = val;
+        seen.delete(id);
+        return val;
+      }
+
+      const ingredients = raw.Ingredients;
+      if (!ingredients || Object.keys(ingredients).length === 0) {
+        const base = raw.Cost != null ? Number(raw.Cost) : 0;
+        cache[id] = base;
+        seen.delete(id);
+        return base;
+      }
+
+      let total = 0;
+      for (const [ingId, qty] of Object.entries(ingredients)) {
+        const q = Number(qty) || 0;
+        total += computeCraftCostById(ingId, cache, seen) * q;
+      }
+
+      cache[id] = total;
+      seen.delete(id);
+      return total;
+    }
+
+    function getMaterialsBreakdown(id, accum = {}) {
+      const raw = craftingDataRaw[id];
+      if (!raw || !raw.Ingredients || Object.keys(raw.Ingredients).length === 0) {
+        // treat as raw material
+        accum[id] = (accum[id] || 0) + 1;
+        return accum;
+      }
+      for (const [ingId, qty] of Object.entries(raw.Ingredients)) {
+        const q = Number(qty) || 0;
+        // if ingredient itself has further ingredients, recurse q times
+        const ingRaw = craftingDataRaw[ingId];
+        if (!ingRaw || !ingRaw.Ingredients || Object.keys(ingRaw.Ingredients).length === 0) {
+          accum[ingId] = (accum[ingId] || 0) + q;
+        } else {
+          // expand recursively and multiply quantities
+          for (let i = 0; i < q; i++) getMaterialsBreakdown(ingId, accum);
+        }
+      }
+      return accum;
+    }
 
     const saveState = () => {
       const state = {
@@ -242,6 +300,10 @@
         const localResponse = await fetch(localDataUrl, { cache: 'no-store' });
         if (!localResponse.ok) throw new Error(`Local data unavailable (${localResponse.status})`);
         const localData = await localResponse.json();
+        // store raw crafting dataset for later craft-cost computation
+        craftingDataRaw = localData;
+        // reset memo cache
+        Object.keys(craftCostCache).forEach(k => delete craftCostCache[k]);
         items = parseItems(localData);
         renderItems();
         itemStatus.textContent = `Showing ${items.length} items from your local crafting backup. Enter your sell price in the right-hand column.`;
@@ -250,6 +312,8 @@
           const apiResponse = await fetch(apiUrl, { cache: 'no-store' });
           if (!apiResponse.ok) throw new Error(`API unavailable (${apiResponse.status})`);
           const apiData = await apiResponse.json();
+          craftingDataRaw = apiData;
+          Object.keys(craftCostCache).forEach(k => delete craftCostCache[k]);
           items = parseItems(apiData);
           renderItems();
           itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
@@ -276,11 +340,27 @@
       itemTableBody.innerHTML = visibleItems.map(item => {
         const value = customPrices[item.id] ?? '';
         const shopsLabel = item.shops.length ? item.shops.join(', ') : 'None';
+        // compute craft cost from ingredients (if available)
+        const craftCost = computeCraftCostById(item.id);
+
+        // prepare materials toggle markup
+        let materialsHtml = '';
+        if (craftingDataRaw && craftingDataRaw[item.id] && craftingDataRaw[item.id].Ingredients && Object.keys(craftingDataRaw[item.id].Ingredients).length > 0) {
+          const breakdown = getMaterialsBreakdown(item.id);
+          const parts = Object.entries(breakdown).map(([matId, qty]) => {
+            const raw = craftingDataRaw[matId];
+            const name = raw && raw.Name ? raw.Name : (`${matId}`);
+            const matCost = computeCraftCostById(matId);
+            return `<li>${escapeHtml(name)} (x${qty}) — ${Number(matCost).toLocaleString()}</li>`;
+          }).join('');
+          materialsHtml = `\n              <div class="small-table">\n                <a href="#" class="toggle-materials" data-id="${escapeHtml(item.id)}">Show materials & craft cost</a>\n                <div class="materials" data-id="${escapeHtml(item.id)}" style="display:none;margin-top:6px;">\n                  <div class="small-table">Crafting cost: ${Number(craftCost).toLocaleString()}</div>\n                  <ul class="small-table" style="margin:6px 0 0 1rem;">${parts}</ul>\n                </div>\n              </div>`;
+        }
+
         return `
           <tr>
             <td>
               <strong>${escapeHtml(item.name)}</strong>
-              <div class="small-table">ID: ${escapeHtml(item.id)}</div>
+              <div class="small-table">ID: ${escapeHtml(item.id)}${materialsHtml}</div>
             </td>
             <td>${escapeHtml(item.category)}</td>
             <td>${item.cost != null ? item.cost.toLocaleString() : '—'}</td>
@@ -294,6 +374,15 @@
         itemTableBody.innerHTML = '<tr><td colspan="5" class="small-table">No matching items found. Try a different search term.</td></tr>';
       }
       attachPriceListeners();
+      // attach toggle handlers for materials links
+      itemTableBody.querySelectorAll('.toggle-materials').forEach(a => {
+        a.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const id = a.getAttribute('data-id');
+          const box = itemTableBody.querySelector(`.materials[data-id="${id}"]`);
+          if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+        });
+      });
     };
 
     const attachPriceListeners = () => {
@@ -337,7 +426,10 @@
         id: item.id,
         name: item.name,
         category: item.category,
-        craftCost: item.cost,
+        // computed craft cost from Ingredients (0 for non-craftable/raw items)
+        craftCost: computeCraftCostById(item.id),
+        // original Cost field is a suggested sale price — expose it as suggestedPrice
+        suggestedPrice: item.cost,
         shops: item.shops,
         sellPrice: customPrices[item.id] != null ? customPrices[item.id] : null,
       }));
@@ -397,157 +489,8 @@
     refreshButton.addEventListener('click', fetchItems);
     Object.values(profileInputs).forEach(input => input.addEventListener('input', saveState));
 
-    // --- existing app state init ---
     loadState();
     fetchItems();
-
-    // --- Weapon Builder integration ---
-    const weaponSpecs = {
-      "AK-101": { core: "AK-101", caliber: "5.56x45", type: "Assault Rifle" },
-      "AK-47": { core: "AK-47", caliber: "7.62x39", type: "Assault Rifle" },
-      "AK-74U": { core: "AK-74U", caliber: "5.45x39", type: "Assault Rifle" },
-      "Colt M16A4": { core: "M16", caliber: "5.56x45", type: "Assault Rifle" },
-      "Colt M4A1": { core: "M4A1", caliber: "5.56x45", type: "Assault Rifle" },
-      "Enfield L85A2": { core: "L85", caliber: "5.56x45", type: "Assault Rifle" },
-      "FN SCAR-L": { core: "SCAR-L", caliber: "5.56x45", type: "Assault Rifle" },
-      "HK G36C": { core: "G36C", caliber: "5.56x45", type: "Assault Rifle" },
-      "HK G3A3": { core: "G3A3", caliber: "7.62x51", type: "Assault Rifle" },
-      "Nexter FAMAS G2": { core: "FAMAS", caliber: "5.56x45", type: "Assault Rifle" },
-      "Sako M92S": { core: "Sako", caliber: "7.62x39", type: "Assault Rifle" },
-      "Sig Sauer SG550": { core: "SG550", caliber: "5.56x45", type: "Assault Rifle" },
-      "Steyr AUG A3": { core: "AUG", caliber: "5.56x45", type: "Assault Rifle" },
-      "Beretta M9": { core: "M9", caliber: "9x19", type: "Pistol" },
-      "Glock 17": { core: "Glock 17", caliber: "9x19", type: "Pistol" },
-      "Glock 18C": { core: "Glock 18C", caliber: "9x19", type: "Pistol" },
-      "Glock 20": { core: "Glock 20", caliber: "10x25", type: "Pistol" },
-      "HK USP40": { core: "USP40", caliber: "10x22", type: "Pistol" },
-      "IMI Desert Eagle Mark XIX": { core: "Desert Eagle", caliber: "12.7x33", type: "Pistol" },
-      "MP5": { core: "MP5", caliber: "9x19", type: "Machine Gun" },
-      "MP7": { core: "MP7", caliber: "4.6x30", type: "Machine Gun" },
-      "Remington M24": { core: "M24", caliber: "7.62x51", type: "Sniper" },
-      "Barrett M82": { core: "M82", caliber: "12.7x99", type: "Sniper" }
-    };
-
-    const capacities = {
-      "Walther PPK": 7, "Makarov PM": 8, "Luger P.08": 8, "Beretta M9": 15,
-      "Glock 17": 17, "USP40": 13, "M1911A1": 7, "HK45 CT": 10, "P226": 13,
-      "Walther P99": 12, "Glock 20": 15, "Desert Eagle": 7, "OTs-33 Pernach": 18,
-      "Glock 18C": 19, "MAC-11": 32, "MP5K": 20, "MP5": 30, "UZI": 32,
-      "MP5/10": 30, "AK-74U": 30, "SG550": 30, "UMP45": 25, "Sako M92S": 30,
-      "G36C": 30, "AK-47": 30, "AK-101": 30, "SR-25": 10, "M14": 20, "G3A3": 20,
-      "L115A3": 5, "M82": 5, "AS50": 5, "MP9": 20, "MP7": 20,
-      "Remington M24": 5,
-      "Taurus 605": 5, "SW Model 500": 5,
-      "Colt Python": 6, "SW Model 19": 6, "SW Model 29": 6, "Colt Anaconda": 6, "Taurus Raging Bull": 6,
-      "Sawed-Off Shotgun": 2, "Double Barreled Shotgun": 2,
-      "Remington 870 Short": 6, "Remington 870": 6, "Mossberg 590A1": 9,
-      "Franchi SPAS-12": 8, "Benelli M3 Super 90": 8
-    };
-
-    function initWeaponBuilder() {
-      const wbWeapon = document.getElementById('wb-weapon');
-      const wbAmmo = document.getElementById('wb-ammo');
-      const wbStock = document.getElementById('wb-stock');
-      const wbLoaded = document.getElementById('wb-loaded-ammo');
-      const wbAdd = document.getElementById('wb-add-build');
-      const wbStatus = document.getElementById('wb-status');
-
-      // populate weapon options
-      Object.keys(weaponSpecs).sort().forEach(name => {
-        const o = document.createElement('option');
-        o.value = name;
-        o.textContent = name;
-        wbWeapon.appendChild(o);
-      });
-
-      // wait until items are available then refresh select options
-      const waitForItems = setInterval(() => {
-        if (Array.isArray(items) && items.length > 0) {
-          clearInterval(waitForItems);
-          wbStatus.textContent = 'Weapon Builder ready — choose a weapon.';
-        }
-      }, 250);
-
-      wbWeapon.addEventListener('change', () => {
-        const sel = wbWeapon.value;
-        wbAmmo.innerHTML = '';
-        wbStock.innerHTML = '';
-        if (!sel) {
-          wbAmmo.disabled = true; wbStock.disabled = true; return;
-        }
-        const spec = weaponSpecs[sel] || { core: sel };
-        const core = (spec.core || sel).toLowerCase();
-
-        // populate ammo options: try to match by name or category
-        const ammoList = items.filter(it => {
-          const n = (it.name || '').toLowerCase();
-          const c = (it.category || '').toLowerCase();
-          return n.includes(core) || c.includes('ammo') || c.includes('mag');
-        });
-        if (ammoList.length) {
-          wbAmmo.disabled = false;
-          const placeholder = document.createElement('option'); placeholder.value=''; placeholder.textContent='-- Select Ammo --'; wbAmmo.appendChild(placeholder);
-          ammoList.forEach(it => { const o=document.createElement('option'); o.value=it.id; o.textContent = it.name; wbAmmo.appendChild(o); });
-        } else {
-          wbAmmo.disabled = true; const o=document.createElement('option'); o.textContent='-- No matching ammo found --'; wbAmmo.appendChild(o);
-        }
-
-        // populate stock options
-        const stockList = items.filter(it => {
-          const n = (it.name || '').toLowerCase();
-          const c = (it.category || '').toLowerCase();
-          return n.includes('stock') || c.includes('stock') || n.includes(core + ' stock');
-        });
-        if (stockList.length) {
-          wbStock.disabled = false;
-          const placeholder = document.createElement('option'); placeholder.value=''; placeholder.textContent='-- Select Stock --'; wbStock.appendChild(placeholder);
-          stockList.forEach(it => { const o=document.createElement('option'); o.value=it.id; o.textContent = it.name; wbStock.appendChild(o); });
-        } else {
-          wbStock.disabled = true; const o=document.createElement('option'); o.textContent='-- No matching stock found --'; wbStock.appendChild(o);
-        }
-      });
-
-      wbAdd.addEventListener('click', () => {
-        const weaponName = wbWeapon.value;
-        if (!weaponName) { wbStatus.textContent = 'Select a weapon first.'; return; }
-        const ammoId = wbAmmo.value;
-        const stockId = wbStock.value;
-        // find selected items
-        const selectedAmmo = items.find(i => i.id == ammoId);
-        const selectedStock = items.find(i => i.id == stockId);
-
-
-        // compute component prices: use crafting cost (`cost`) from the items list
-        const getPriceFor = it => {
-          if (!it) return 0;
-          return (it.cost != null) ? Number(it.cost) : 0;
-        };
-
-        let subtotal = 0;
-        if (selectedStock) subtotal += getPriceFor(selectedStock);
-        if (selectedAmmo) {
-          const ammoPrice = getPriceFor(selectedAmmo);
-          subtotal += ammoPrice;
-        }
-
-        // create a composed item entry
-        const customId = 'custom-' + Date.now();
-        const customName = `${weaponName} (Custom Build)`;
-        const newItem = {
-          id: customId,
-          name: customName,
-          category: 'Custom Build',
-          cost: Math.round(subtotal),
-          shops: ['Custom Build']
-        };
-        items.push(newItem);
-        renderItems();
-        wbStatus.textContent = `Added ${customName} — cost ${newItem.cost}. Enter your sell price in the table.`;
-      });
-    }
-
-    // initialize builder after items load
-    initWeaponBuilder();
   </script>
 </body>
 </html>
