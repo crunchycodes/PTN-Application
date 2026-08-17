@@ -329,6 +329,87 @@
       return accum;
     }
 
+    function computeLoadedInfo(item) {
+      const lowerName = (s) => (s || '').toLowerCase();
+
+      const computeLoaded = (capacity, ammoKey = null) => {
+        const ammoBox = findAmmoBoxItem(ammoKey);
+        if (!ammoBox) return null;
+        const perRound = computeCraftCostById(ammoBox.item.id) / ammoBox.rounds;
+        const loadedPrice = perRound * capacity;
+        return { perRound, loadedPrice, boxName: ammoBox.item.name, boxRounds: ammoBox.rounds };
+      };
+
+      const inferAmmoKeyFromWeaponName = (wname) => {
+        if (!wname) return null;
+        const wt = weaponTypes[wname] || weaponTypes[wname.trim()] || null;
+        const ak = mapTypeToAmmoKey(wt);
+        if (ak) return ak;
+        const lname = lowerName(wname);
+        if (lname.includes('shotgun')) return 'buckshot';
+        if (lname.includes('sniper') || lname.includes('barrett') || lname.includes('m82')) return 'sniper ammo';
+        if (lname.includes('glock') || lname.includes('pistol') || lname.includes('usp') || lname.includes('m9') || lname.includes('p226')) return 'pistol ammo';
+        if (lname.includes('ak') || lname.includes('stanag') || lname.includes('rifle') || lname.includes('scar') || lname.includes('m4') || lname.includes('m16')) return 'rifle ammo';
+        return null;
+      };
+
+      const nm = lowerName(item.name);
+      const isMagazine = nm.includes('magazine') || nm.match(/\bmag\b/);
+      if (isMagazine) {
+        const m = item.name.match(/\(([^)]+)\)/);
+        const weaponRef = m ? m[1].trim() : null;
+        let cap = null;
+        if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
+        if (!cap) {
+          const num = item.name.match(/(\d{1,3})/);
+          if (num) cap = Number(num[1]);
+        }
+        const ammoKey = weaponRef ? inferAmmoKeyFromWeaponName(weaponRef) : null;
+        if (cap) {
+          const loaded = computeLoaded(cap, ammoKey);
+          if (loaded) {
+            return `Magazine capacity: ${cap} — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})`;
+          }
+        }
+      }
+
+      // weapon or other item
+      const itemName = item.name.trim();
+      const mags = items.filter(it => {
+        const mm = it.name.match(/\(([^)]+)\)/);
+        if (!mm) return false;
+        const inside = mm[1].trim().toLowerCase();
+        return inside === itemName.toLowerCase() || itemName.toLowerCase().includes(inside);
+      });
+      let cap = null;
+      let ammoKey = null;
+      if (mags.length > 0) {
+        const mm = mags[0].name.match(/\(([^)]+)\)/);
+        const weaponRef = mm ? mm[1].trim() : null;
+        if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
+        if (!cap) {
+          const num = mags[0].name.match(/(\d{1,3})/);
+          if (num) cap = Number(num[1]);
+        }
+        ammoKey = weaponRef ? inferAmmoKeyFromWeaponName(weaponRef) : null;
+      }
+      if (!cap) {
+        const wt = weaponTypes[item.name] || weaponTypes[itemName] || null;
+        if (wt === 'Assault Rifle') cap = 60;
+        else if (wt === 'Pistol' || wt === 'Revolver' || wt === 'Machine Gun') cap = 30;
+        else if (wt === 'Sniper') cap = 10; else if (wt === 'Shotgun') cap = 20;
+        if (!cap && capacities[item.name]) cap = capacities[item.name];
+        ammoKey = mapTypeToAmmoKey(wt);
+      }
+      if (cap) {
+        const loaded = computeLoaded(cap, ammoKey);
+        if (loaded) {
+          return `Loaded: ${cap} rounds — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})`;
+        }
+      }
+      return null;
+    }
+
     const saveState = () => {
       const state = {
         profile: Object.fromEntries(Object.entries(profileInputs).map(([key, input]) => [key, input.value.trim()])),
@@ -418,7 +499,8 @@
 
         // prepare materials toggle markup
         let materialsHtml = '';
-        let loadedInfoHtml = '';
+        // compute loaded info for every item (magazines or weapons)
+        const loadedInfoHtml = computeLoadedInfo(item) || '';
         if (craftingDataRaw && craftingDataRaw[item.id] && craftingDataRaw[item.id].Ingredients && Object.keys(craftingDataRaw[item.id].Ingredients).length > 0) {
           const breakdown = getMaterialsBreakdown(item.id);
           const parts = Object.entries(breakdown).map(([matId, qty]) => {
