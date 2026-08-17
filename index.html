@@ -516,23 +516,17 @@
         const selectedAmmo = items.find(i => i.id == ammoId);
         const selectedStock = items.find(i => i.id == stockId);
 
-        // compute component prices: prefer customPrices (user-entered sell price) if available, otherwise craft cost
+
+        // compute component prices: use crafting cost (`cost`) from the items list
         const getPriceFor = it => {
           if (!it) return 0;
-          if (customPrices && customPrices[it.id] != null) return Number(customPrices[it.id]);
           return (it.cost != null) ? Number(it.cost) : 0;
         };
 
         let subtotal = 0;
         if (selectedStock) subtotal += getPriceFor(selectedStock);
         if (selectedAmmo) {
-          let ammoPrice = getPriceFor(selectedAmmo);
-          if (wbLoaded.checked) {
-            // if weapon has a known capacity, assume ammo price is per-round and multiply by capacity
-            const core = (weaponSpecs[weaponName] && weaponSpecs[weaponName].core) || weaponName;
-            const cap = capacities[core] || capacities[weaponName] || null;
-            if (cap) ammoPrice = ammoPrice * cap;
-          }
+          const ammoPrice = getPriceFor(selectedAmmo);
           subtotal += ammoPrice;
         }
 
