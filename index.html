@@ -201,6 +201,54 @@
     let craftingDataRaw = {};
     const craftCostCache = {};
 
+    const weaponTypes = {
+        "AK-101": "Assault Rifle", "AK-47": "Assault Rifle", "AK-74U": "Assault Rifle",
+        "Colt M16A4": "Assault Rifle", "Colt M4A1": "Assault Rifle", "Enfield L85A2": "Assault Rifle",
+        "FN SCAR-L": "Assault Rifle", "HK G36C": "Assault Rifle", "HK G3A3": "Assault Rifle",
+        "Nexter FAMAS G2": "Assault Rifle", "Sako M92S": "Assault Rifle", "Sig Sauer SG550": "Assault Rifle",
+        "Steyr AUG A3": "Assault Rifle", "M67 Fragmentation Grenade": "Explosive", "M68 Impact Grenade": "Explosive",
+        "M69 Practice Grenade": "Explosive", "M84 Stun Grenade": "Explosive", "Mk II Grenade": "Explosive",
+        "Beretta M9": "Pistol", "Colt M1911A1": "Pistol", "Glock 17": "Pistol", "Glock 18C": "Pistol",
+        "Glock 20": "Pistol", "HK HK45 CT": "Pistol", "HK USP40": "Pistol", "IMI Desert Eagle Mark XIX": "Pistol",
+        "Luger P.08": "Pistol", "Makarov PM": "Pistol", "OTs-33 Pernach": "Pistol", "Sig Sauer P226": "Pistol",
+        "Walther P99": "Pistol", "Walther PPK": "Pistol", "Colt Anaconda": "Revolver", "Colt Python": "Revolver",
+        "SW Model 19": "Revolver", "SW Model 29": "Revolver", "SW Model 500": "Revolver", "Taurus 605": "Revolver",
+        "Taurus Raging Bull": "Revolver", "Benelli M3 Super 90": "Shotgun", "Double Barreled Shotgun": "Shotgun",
+        "Franchi SPAS-12": "Shotgun", "Mossberg 590A1": "Shotgun", "Remington 870": "Shotgun",
+        "Sawed-Off Shotgun": "Shotgun", "Remington 870 Short": "Shotgun", "MP9": "Machine Gun",
+        "HK MP5/10": "Machine Gun", "HK MP5A4": "Machine Gun", "HK MP5K": "Machine Gun", "HK MP7": "Machine Gun", "HK UMP45": "Machine Gun",
+        "Uzi": "Machine Gun", "MAC-11": "Machine Gun", "AI AS50": "Sniper", "AI L115A3": "Sniper",
+        "Barrett M82": "Sniper", "KAC SR-25": "Sniper", "Remington M24": "Sniper", "Springfield M14": "Sniper"
+    };
+
+    const capacities = {
+        "Walther PPK": 7, "Makarov PM": 8, "Luger P.08": 8, "Beretta M9": 15,
+        "Glock 17": 17, "USP40": 13, "M1911A1": 7, "HK45 CT": 10, "P226": 13,
+        "Walther P99": 12, "Glock 20": 15, "Desert Eagle": 7, "OTs-33 Pernach": 18,
+        "Glock 18C": 19, "MAC-11": 32, "MP5K": 20, "MP5": 30, "UZI": 32,
+        "MP5/10": 30, "AK-74U": 30, "SG550": 30, "UMP45": 25, "Sako M92S": 30,
+        "G36C": 30, "AK-47": 30, "AK-101": 30, "SR-25": 10, "M14": 20, "G3A3": 20,
+        "L115A3": 5, "M82": 5, "AS50": 5, "MP9": 20, "MP7": 20,
+        "Remington M24": 5,
+        "Taurus 605": 5, "SW Model 500": 5,
+        "Colt Python": 6, "SW Model 19": 6, "SW Model 29": 6, "Colt Anaconda": 6, "Taurus Raging Bull": 6,
+        "Sawed-Off Shotgun": 2, "Double Barreled Shotgun": 2,
+        "Remington 870 Short": 6, "Remington 870": 6, "Mossberg 590A1": 9,
+        "Franchi SPAS-12": 8, "Benelli M3 Super 90": 8
+    };
+
+    const ammoBoxRounds = { 'buckshot': 20, 'pistol ammo': 30, 'rifle ammo': 60, 'sniper ammo': 10 };
+
+    function findAmmoBoxItem() {
+      const lower = (name) => name && name.toLowerCase();
+      // prefer exact keyword matches in items' names
+      for (const key of Object.keys(ammoBoxRounds)) {
+        const found = items.find(it => lower(it.name).includes(key));
+        if (found) return { item: found, rounds: ammoBoxRounds[key] };
+      }
+      return null;
+    }
+
     function computeCraftCostById(id, cache = craftCostCache, seen = new Set()) {
       if (cache[id] != null) return cache[id];
       if (seen.has(id)) return 0; // avoid cycles
@@ -353,7 +401,77 @@
             const matCost = computeCraftCostById(matId);
             return `<li>${escapeHtml(name)} (x${qty}) — ${Number(matCost).toLocaleString()}</li>`;
           }).join('');
-          materialsHtml = `\n              <div class="small-table">\n                <a href="#" class="toggle-materials" data-id="${escapeHtml(item.id)}">Show materials & craft cost</a>\n                <div class="materials" data-id="${escapeHtml(item.id)}" style="display:none;margin-top:6px;">\n                  <div class="small-table">Crafting cost: ${Number(craftCost).toLocaleString()}</div>\n                  <ul class="small-table" style="margin:6px 0 0 1rem;">${parts}</ul>\n                </div>\n              </div>`;
+
+          // compute loaded-magazine/weapon info
+          let loadedInfoHtml = '';
+          const lowerName = (s) => (s || '').toLowerCase();
+
+          // helper to compute loaded price given capacity and ammo box
+          const computeLoaded = (capacity) => {
+            const ammoBox = findAmmoBoxItem();
+            if (!ammoBox) return null;
+            const perRound = computeCraftCostById(ammoBox.item.id) / ammoBox.rounds;
+            const loadedPrice = perRound * capacity;
+            return { perRound, loadedPrice, boxName: ammoBox.item.name, boxRounds: ammoBox.rounds };
+          };
+
+          // If this item is a magazine (name contains 'magazine' or 'mag') try to infer the weapon and capacity
+          const nm = lowerName(item.name);
+          const isMagazine = nm.includes('magazine') || nm.match(/\bmag\b/);
+          if (isMagazine) {
+            const m = item.name.match(/\(([^)]+)\)/);
+            const weaponRef = m ? m[1].trim() : null;
+            let cap = null;
+            if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
+            // fallback: look for a number in the mag name
+            if (!cap) {
+              const num = item.name.match(/(\d{1,3})/);
+              if (num) cap = Number(num[1]);
+            }
+            if (cap) {
+              const loaded = computeLoaded(cap);
+              if (loaded) {
+                loadedInfoHtml = `<div class="small-table">Magazine capacity: ${cap} — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})</div>`;
+              }
+            }
+          } else {
+            // If this item is a weapon (category or known name), show loaded pricing using associated magazines or defaults
+            const itemName = item.name.trim();
+            const mags = items.filter(it => {
+              const mm = it.name.match(/\(([^)]+)\)/);
+              if (!mm) return false;
+              const inside = mm[1].trim().toLowerCase();
+              return inside === itemName.toLowerCase() || itemName.toLowerCase().includes(inside);
+            });
+            let cap = null;
+            if (mags.length > 0) {
+              // use first mag's inferred capacity (from weaponRef)
+              const mm = mags[0].name.match(/\(([^)]+)\)/);
+              const weaponRef = mm ? mm[1].trim() : null;
+              if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
+              if (!cap) {
+                const num = mags[0].name.match(/(\d{1,3})/);
+                if (num) cap = Number(num[1]);
+              }
+            }
+            if (!cap) {
+              // fallback rules by weapon type
+              const wt = weaponTypes[item.name] || weaponTypes[itemName] || null;
+              if (wt === 'Assault Rifle') cap = 60; // 2 STANAG magazines -> 60 rounds
+              else if (wt === 'Pistol' || wt === 'Revolver' || wt === 'Machine Gun') cap = 30;
+              else if (wt === 'Sniper') cap = 10; else if (wt === 'Shotgun') cap = 20;
+              // final fallback: look up capacities map directly
+              if (!cap && capacities[item.name]) cap = capacities[item.name];
+            }
+            if (cap) {
+              const loaded = computeLoaded(cap);
+              if (loaded) {
+                loadedInfoHtml = `<div class="small-table">Loaded: ${cap} rounds — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})</div>`;
+              }
+            }
+          }
+
+          materialsHtml = `\n              <div class="small-table">\n                <a href="#" class="toggle-materials" data-id="${escapeHtml(item.id)}">Show materials & craft cost</a>\n                <div class="materials" data-id="${escapeHtml(item.id)}" style="display:none;margin-top:6px;">\n                  <div class="small-table">Crafting cost: ${Number(craftCost).toLocaleString()}</div>\n                  ${loadedInfoHtml}\n                  <ul class="small-table" style="margin:6px 0 0 1rem;">${parts}</ul>\n                </div>\n              </div>`;
         }
 
         return `
