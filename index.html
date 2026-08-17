@@ -105,37 +105,32 @@
       </label>
     </div>
 
-    <!-- Weapon Builder Panel (integrated) -->
-    <section class="panel" id="weapon-builder-panel" style="margin-top:1rem;">
-      <h2>Weapon Builder</h2>
-      <div class="grid grid-3">
+    <!-- Custom Item Creator Panel -->
+    <section class="panel" id="custom-item-panel" style="margin-top:1rem;">
+      <h2>Custom Item Creator</h2>
+      <div class="grid grid-2">
         <label>
-          Weapon
-          <select id="wb-weapon">
-            <option value="">-- Select Weapon --</option>
-          </select>
+          Item Name <span class="small">(required)</span>
+          <input id="ci-name" type="text" placeholder="Custom item name" />
         </label>
         <label>
-          Ammo / Magazine
-          <select id="wb-ammo" disabled>
-            <option value="">-- Select Weapon First --</option>
-          </select>
+          Category <span class="small">(optional)</span>
+          <input id="ci-category" type="text" placeholder="Category (e.g., Supplies, Materials)" />
         </label>
         <label>
-          Stock
-          <select id="wb-stock" disabled>
-            <option value="">-- Select Weapon First --</option>
-          </select>
+          Cost <span class="small">(suggested sale price)</span>
+          <input id="ci-cost" type="number" min="0" step="1" placeholder="Suggested price" />
+        </label>
+        <label>
+          Description <span class="small">(optional)</span>
+          <input id="ci-description" type="text" placeholder="Short description or special notes" />
         </label>
       </div>
-
-      <div style="display:flex;align-items:center;gap:1rem;margin-top:0.75rem;flex-wrap:wrap;">
-        <label class="small" style="margin:0;"><input type="checkbox" id="wb-loaded-ammo"> Loaded Ammo</label>
-        <div class="actions" style="margin:0;">
-          <button id="wb-add-build">Add build to item list</button>
-        </div>
+      <div class="actions" style="margin-top:0.75rem;">
+        <button id="ci-add-button">Add custom item</button>
+        <button id="ci-clear-button" class="secondary">Clear fields</button>
       </div>
-      <div class="status small" id="wb-status" style="margin-top:0.5rem;">Weapon Builder ready.</div>
+      <div class="status small" id="ci-status" style="margin-top:0.5rem;">Create custom items to appear in the list for pricing and export.</div>
     </section>
 
     <div class="status" id="itemStatus">Loading items…</div>
@@ -197,8 +192,18 @@
     const refreshButton = document.getElementById('refreshButton');
     const exportStatus = document.getElementById('exportStatus');
 
+    // Custom Item Creator elements
+    const ciName = document.getElementById('ci-name');
+    const ciCategory = document.getElementById('ci-category');
+    const ciCost = document.getElementById('ci-cost');
+    const ciDescription = document.getElementById('ci-description');
+    const ciAddButton = document.getElementById('ci-add-button');
+    const ciClearButton = document.getElementById('ci-clear-button');
+    const ciStatus = document.getElementById('ci-status');
+
     let items = [];
     let customPrices = {};
+    let customItems = {};
     // Keep the raw crafting dataset (id -> raw entry) so we can compute craft costs from Ingredients
     let craftingDataRaw = {};
     const craftCostCache = {};
@@ -413,7 +418,8 @@
     const saveState = () => {
       const state = {
         profile: Object.fromEntries(Object.entries(profileInputs).map(([key, input]) => [key, input.value.trim()])),
-        prices: customPrices
+        prices: customPrices,
+        customItems: customItems
       };
       localStorage.setItem('shopBuilderState', JSON.stringify(state));
     };
@@ -431,6 +437,7 @@
           });
         }
         customPrices = parsed.prices || {};
+        customItems = parsed.customItems || {};
       } catch (error) {
         console.warn('Could not load saved profile state:', error);
       }
@@ -459,6 +466,14 @@
         // reset memo cache
         Object.keys(craftCostCache).forEach(k => delete craftCostCache[k]);
         items = parseItems(localData);
+        // append any user-created custom items
+        items = items.concat(Object.entries(customItems).map(([id, obj]) => ({
+          id,
+          name: obj.name || ('Custom ' + id),
+          category: obj.category || '',
+          cost: obj.cost != null ? Number(obj.cost) : null,
+          shops: obj.shops || []
+        })));
         renderItems();
         itemStatus.textContent = `Showing ${items.length} items from your local crafting backup. Enter your sell price in the right-hand column.`;
       } catch (localError) {
@@ -469,10 +484,26 @@
           craftingDataRaw = apiData;
           Object.keys(craftCostCache).forEach(k => delete craftCostCache[k]);
           items = parseItems(apiData);
+          // append any user-created custom items
+          items = items.concat(Object.entries(customItems).map(([id, obj]) => ({
+            id,
+            name: obj.name || ('Custom ' + id),
+            category: obj.category || '',
+            cost: obj.cost != null ? Number(obj.cost) : null,
+            shops: obj.shops || []
+          })));
           renderItems();
           itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
         } catch (apiError) {
           items = seedItems.map(item => ({ ...item, cost: Number(item.cost) }));
+          // append any user-created custom items
+          items = items.concat(Object.entries(customItems).map(([id, obj]) => ({
+            id,
+            name: obj.name || ('Custom ' + id),
+            category: obj.category || '',
+            cost: obj.cost != null ? Number(obj.cost) : null,
+            shops: obj.shops || []
+          })));
           renderItems();
           itemStatus.innerHTML = `Unable to load the local backup or the live API, so a starter item list is being used instead. ${escapeHtml(localError.message)} • ${escapeHtml(apiError.message)}`;
         }
@@ -499,8 +530,18 @@
 
         // prepare materials toggle markup
         let materialsHtml = '';
-        // compute loaded info for every item (magazines or weapons)
-        const loadedInfoHtml = computeLoadedInfo(item) || '';
+        // decide whether this category should show loaded pricing
+        let loadedInfoHtml = '';
+        const _cat = (item.category || '').toLowerCase();
+        if (_cat === 'weapon components' || _cat === 'weapon component') {
+          // explicit: weapon components do not get loaded pricing
+          loadedInfoHtml = '';
+        } else if (_cat === 'weaponry' || _cat.includes('magazine') || _cat === 'magazines') {
+          loadedInfoHtml = computeLoadedInfo(item) || '';
+        } else {
+          // other categories do not get loaded pricing
+          loadedInfoHtml = '';
+        }
         if (craftingDataRaw && craftingDataRaw[item.id] && craftingDataRaw[item.id].Ingredients && Object.keys(craftingDataRaw[item.id].Ingredients).length > 0) {
           const breakdown = getMaterialsBreakdown(item.id);
           const parts = Object.entries(breakdown).map(([matId, qty]) => {
@@ -510,91 +551,93 @@
             return `<li>${escapeHtml(name)} (x${qty}) — ${Number(matCost).toLocaleString()}</li>`;
           }).join('');
 
-          // compute loaded-magazine/weapon info
-          let loadedInfoHtml = '';
-          const lowerName = (s) => (s || '').toLowerCase();
+          // compute loaded-magazine/weapon info (only fill if allowed by category)
+          // NOTE: `loadedInfoHtml` is declared above; reassign here when appropriate
+          if (_cat === 'weaponry' || _cat.includes('magazine') || _cat === 'magazines') {
+            const lowerName = (s) => (s || '').toLowerCase();
 
-          // helper to compute loaded price given capacity and ammoKey
-          const computeLoaded = (capacity, ammoKey = null) => {
-            const ammoBox = findAmmoBoxItem(ammoKey);
-            if (!ammoBox) return null;
-            const perRound = computeCraftCostById(ammoBox.item.id) / ammoBox.rounds;
-            const loadedPrice = perRound * capacity;
-            return { perRound, loadedPrice, boxName: ammoBox.item.name, boxRounds: ammoBox.rounds };
-          };
+            // helper to compute loaded price given capacity and ammoKey
+            const computeLoaded = (capacity, ammoKey = null) => {
+              const ammoBox = findAmmoBoxItem(ammoKey);
+              if (!ammoBox) return null;
+              const perRound = computeCraftCostById(ammoBox.item.id) / ammoBox.rounds;
+              const loadedPrice = perRound * capacity;
+              return { perRound, loadedPrice, boxName: ammoBox.item.name, boxRounds: ammoBox.rounds };
+            };
 
-          // determine ammoKey from weapon type
-          const inferAmmoKeyFromWeaponName = (wname) => {
-            if (!wname) return null;
-            const wt = weaponTypes[wname] || weaponTypes[wname.trim()] || null;
-            const ak = mapTypeToAmmoKey(wt);
-            if (ak) return ak;
-            // fallback heuristics by string
-            const lname = lowerName(wname);
-            if (lname.includes('shotgun')) return 'buckshot';
-            if (lname.includes('sniper') || lname.includes('barrett') || lname.includes('m82')) return 'sniper ammo';
-            if (lname.includes('glock') || lname.includes('pistol') || lname.includes('usp') || lname.includes('m9') || lname.includes('p226')) return 'pistol ammo';
-            if (lname.includes('ak') || lname.includes('stanag') || lname.includes('rifle') || lname.includes('scar') || lname.includes('m4') || lname.includes('m16')) return 'rifle ammo';
-            return null;
-          };
+            // determine ammoKey from weapon type
+            const inferAmmoKeyFromWeaponName = (wname) => {
+              if (!wname) return null;
+              const wt = weaponTypes[wname] || weaponTypes[wname.trim()] || null;
+              const ak = mapTypeToAmmoKey(wt);
+              if (ak) return ak;
+              // fallback heuristics by string
+              const lname = lowerName(wname);
+              if (lname.includes('shotgun')) return 'buckshot';
+              if (lname.includes('sniper') || lname.includes('barrett') || lname.includes('m82')) return 'sniper ammo';
+              if (lname.includes('glock') || lname.includes('pistol') || lname.includes('usp') || lname.includes('m9') || lname.includes('p226')) return 'pistol ammo';
+              if (lname.includes('ak') || lname.includes('stanag') || lname.includes('rifle') || lname.includes('scar') || lname.includes('m4') || lname.includes('m16')) return 'rifle ammo';
+              return null;
+            };
 
-          // If this item is a magazine (name contains 'magazine' or 'mag') try to infer the weapon and capacity
-          const nm = lowerName(item.name);
-          const isMagazine = nm.includes('magazine') || nm.match(/\bmag\b/);
-          if (isMagazine) {
-            const m = item.name.match(/\(([^)]+)\)/);
-            const weaponRef = m ? m[1].trim() : null;
-            let cap = null;
-            if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
-            // fallback: look for a number in the mag name
-            if (!cap) {
-              const num = item.name.match(/(\d{1,3})/);
-              if (num) cap = Number(num[1]);
-            }
-            // determine ammoKey
-            const ammoKey = weaponRef ? inferAmmoKeyFromWeaponName(weaponRef) : null;
-            if (cap) {
-              const loaded = computeLoaded(cap, ammoKey);
-              if (loaded) {
-                loadedInfoHtml = `<div class="small-table">Magazine capacity: ${cap} — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})</div>`;
-              }
-            }
-          } else {
-            // If this item is a weapon (category or known name), show loaded pricing using associated magazines or defaults
-            const itemName = item.name.trim();
-            const mags = items.filter(it => {
-              const mm = it.name.match(/\(([^)]+)\)/);
-              if (!mm) return false;
-              const inside = mm[1].trim().toLowerCase();
-              return inside === itemName.toLowerCase() || itemName.toLowerCase().includes(inside);
-            });
-            let cap = null;
-            let ammoKey = null;
-            if (mags.length > 0) {
-              // use first mag's inferred capacity (from weaponRef)
-              const mm = mags[0].name.match(/\(([^)]+)\)/);
-              const weaponRef = mm ? mm[1].trim() : null;
+            // If this item is a magazine (name contains 'magazine' or 'mag') try to infer the weapon and capacity
+            const nm = lowerName(item.name);
+            const isMagazine = nm.includes('magazine') || nm.match(/\bmag\b/);
+            if (isMagazine) {
+              const m = item.name.match(/\(([^)]+)\)/);
+              const weaponRef = m ? m[1].trim() : null;
+              let cap = null;
               if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
+              // fallback: look for a number in the mag name
               if (!cap) {
-                const num = mags[0].name.match(/(\d{1,3})/);
+                const num = item.name.match(/(\d{1,3})/);
                 if (num) cap = Number(num[1]);
               }
-              ammoKey = weaponRef ? inferAmmoKeyFromWeaponName(weaponRef) : null;
-            }
-            if (!cap) {
-              // fallback rules by weapon type
-              const wt = weaponTypes[item.name] || weaponTypes[itemName] || null;
-              if (wt === 'Assault Rifle') cap = 60; // 2 STANAG magazines -> 60 rounds
-              else if (wt === 'Pistol' || wt === 'Revolver' || wt === 'Machine Gun') cap = 30;
-              else if (wt === 'Sniper') cap = 10; else if (wt === 'Shotgun') cap = 20;
-              // final fallback: look up capacities map directly
-              if (!cap && capacities[item.name]) cap = capacities[item.name];
-              ammoKey = mapTypeToAmmoKey(wt);
-            }
-            if (cap) {
-              const loaded = computeLoaded(cap, ammoKey);
-              if (loaded) {
-                loadedInfoHtml = `<div class="small-table">Loaded: ${cap} rounds — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})</div>`;
+              // determine ammoKey
+              const ammoKey = weaponRef ? inferAmmoKeyFromWeaponName(weaponRef) : null;
+              if (cap) {
+                const loaded = computeLoaded(cap, ammoKey);
+                if (loaded) {
+                  loadedInfoHtml = `<div class="small-table">Magazine capacity: ${cap} — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})</div>`;
+                }
+              }
+            } else {
+              // If this item is a weapon (category or known name), show loaded pricing using associated magazines or defaults
+              const itemName = item.name.trim();
+              const mags = items.filter(it => {
+                const mm = it.name.match(/\(([^)]+)\)/);
+                if (!mm) return false;
+                const inside = mm[1].trim().toLowerCase();
+                return inside === itemName.toLowerCase() || itemName.toLowerCase().includes(inside);
+              });
+              let cap = null;
+              let ammoKey = null;
+              if (mags.length > 0) {
+                // use first mag's inferred capacity (from weaponRef)
+                const mm = mags[0].name.match(/\(([^)]+)\)/);
+                const weaponRef = mm ? mm[1].trim() : null;
+                if (weaponRef && capacities[weaponRef]) cap = capacities[weaponRef];
+                if (!cap) {
+                  const num = mags[0].name.match(/(\d{1,3})/);
+                  if (num) cap = Number(num[1]);
+                }
+                ammoKey = weaponRef ? inferAmmoKeyFromWeaponName(weaponRef) : null;
+              }
+              if (!cap) {
+                // fallback rules by weapon type
+                const wt = weaponTypes[item.name] || weaponTypes[itemName] || null;
+                if (wt === 'Assault Rifle') cap = 60; // 2 STANAG magazines -> 60 rounds
+                else if (wt === 'Pistol' || wt === 'Revolver' || wt === 'Machine Gun') cap = 30;
+                else if (wt === 'Sniper') cap = 10; else if (wt === 'Shotgun') cap = 20;
+                // final fallback: look up capacities map directly
+                if (!cap && capacities[item.name]) cap = capacities[item.name];
+                ammoKey = mapTypeToAmmoKey(wt);
+              }
+              if (cap) {
+                const loaded = computeLoaded(cap, ammoKey);
+                if (loaded) {
+                  loadedInfoHtml = `<div class="small-table">Loaded: ${cap} rounds — Loaded cost: ${Number(loaded.loadedPrice).toLocaleString()} (per round ${Number(loaded.perRound).toFixed(2)}, box: ${escapeHtml(loaded.boxName)})</div>`;
+                }
               }
             }
           }
@@ -607,6 +650,7 @@
             <td>
               <strong>${escapeHtml(item.name)}</strong>
               <div class="small-table">ID: ${escapeHtml(item.id)}</div>
+              ${customItems[item.id] && customItems[item.id].description ? `<div class="small-table">Description: ${escapeHtml(customItems[item.id].description)}</div>` : ''}
             </td>
             <td>${escapeHtml(item.category)}</td>
             <td>${materialsHtml || '—'}</td>
@@ -678,6 +722,8 @@
         craftCost: computeCraftCostById(item.id),
         // original Cost field is a suggested sale price — expose it as suggestedPrice
         suggestedPrice: item.cost,
+        // include custom description when available
+        description: (customItems[item.id] && customItems[item.id].description) ? customItems[item.id].description : null,
         shops: item.shops,
         sellPrice: customPrices[item.id] != null ? customPrices[item.id] : null,
       }));
@@ -736,6 +782,40 @@
     itemSearchInput.addEventListener('input', () => renderItems());
     refreshButton.addEventListener('click', fetchItems);
     Object.values(profileInputs).forEach(input => input.addEventListener('input', saveState));
+
+    // Add / clear handlers for custom item creator
+    const clearCustomInputs = () => {
+      if (ciName) ciName.value = '';
+      if (ciCategory) ciCategory.value = '';
+      if (ciCost) ciCost.value = '';
+      if (ciDescription) ciDescription.value = '';
+      if (ciStatus) ciStatus.textContent = 'Create custom items to appear in the list for pricing and export.';
+    };
+
+    const addCustomItem = () => {
+      if (!ciName || !ciName.value.trim()) {
+        if (ciStatus) ciStatus.textContent = 'Item name is required.';
+        return;
+      }
+      const id = 'custom-' + Date.now();
+      const obj = {
+        name: ciName.value.trim(),
+        category: ciCategory && ciCategory.value ? ciCategory.value.trim() : '',
+        cost: ciCost && ciCost.value ? Number(ciCost.value) : null,
+        description: ciDescription && ciDescription.value ? ciDescription.value.trim() : '',
+        shops: []
+      };
+      customItems[id] = obj;
+      // push into items list so it appears immediately
+      items.push({ id, name: obj.name, category: obj.category, cost: obj.cost, shops: obj.shops });
+      saveState();
+      renderItems();
+      if (ciStatus) ciStatus.textContent = `Added custom item: ${obj.name}`;
+      clearCustomInputs();
+    };
+
+    if (ciAddButton) ciAddButton.addEventListener('click', addCustomItem);
+    if (ciClearButton) ciClearButton.addEventListener('click', (e) => { e.preventDefault(); clearCustomInputs(); });
 
     loadState();
     fetchItems();
