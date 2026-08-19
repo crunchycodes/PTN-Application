@@ -64,8 +64,8 @@
         <input id="characterName" type="text" placeholder="Your character name" required />
       </label>
       <label>
-        Steam Name <span class="small">(optional)</span>
-        <input id="steamName" type="text" placeholder="Steam name" />
+        Steam Profile URL <span class="small">(optional)</span>
+        <input id="steamName" type="url" placeholder="https://steamcommunity.com/id/yourname" />
       </label>
       <label>
         Discord Username <span class="small">(optional)</span>
@@ -118,13 +118,6 @@
       </div>
     </div>
 
-    <div class="grid" style="margin-top:1rem;">
-      <label style="margin-bottom:0;">
-        Search items
-        <input id="itemSearch" type="text" placeholder="Search by item name, category, or shop" />
-      </label>
-    </div>
-
     <!-- Custom Item Creator Panel -->
     <section class="panel" id="custom-item-panel" style="margin-top:1rem;">
       <h2>Custom Item Creator</h2>
@@ -134,12 +127,10 @@
           <input id="ci-name" type="text" placeholder="Custom item name" />
         </label>
         <label>
-          Category <span class="small">(optional)</span>
-          <input id="ci-category" type="text" placeholder="Category (e.g., Supplies, Materials)" />
-        </label>
-        <label>
-          Cost <span class="small">(suggested sale price)</span>
-          <input id="ci-cost" type="number" min="0" step="1" placeholder="Suggested price" />
+          Category <span class="small">(required)</span>
+          <select id="ci-category">
+            <option value="">-- Select category --</option>
+          </select>
         </label>
         <label>
           Description <span class="small">(optional)</span>
@@ -152,6 +143,12 @@
       </div>
       <div class="status small" id="ci-status" style="margin-top:0.5rem;">Create custom items to appear in the list for pricing and export.</div>
     </section>
+    <div class="grid" style="margin-top:1rem;">
+      <label style="margin-bottom:0;">
+        Search items
+        <input id="itemSearch" type="text" placeholder="Search by item name, category, or shop" />
+      </label>
+    </div>
 
     <div class="status" id="itemStatus">Loading items…</div>
     <div class="table-wrap" style="margin-top:1rem;">
@@ -220,7 +217,6 @@
     // Custom Item Creator elements
     const ciName = document.getElementById('ci-name');
     const ciCategory = document.getElementById('ci-category');
-    const ciCost = document.getElementById('ci-cost');
     const ciDescription = document.getElementById('ci-description');
     const ciAddButton = document.getElementById('ci-add-button');
     const ciClearButton = document.getElementById('ci-clear-button');
@@ -314,7 +310,7 @@
         if (cat === 'weaponry' || cat === 'magazines' || cat.includes('magazine')) {
           // skip explosive-type weapons
           const lname = (it.name || '').toLowerCase();
-          if (lname.includes('grenade') || lname.includes('cocktail')) continue;
+          if (lname.includes('grenade') || lname.includes('cocktail') || lname.includes('explosives')) continue;
           const loadedId = `${it.id}.5`;
           // avoid duplicates
           if (list.find(x => String(x.id) === String(loadedId))) continue;
@@ -611,6 +607,7 @@
         })));
         // append loaded variants for weapons/magazines
         items = addLoadedVariants(items);
+        populateCategoryDropdown();
         renderItems();
         itemStatus.textContent = `Showing ${items.length} items from your local crafting backup. Enter your sell price in the right-hand column.`;
       } catch (localError) {
@@ -631,6 +628,7 @@
           })));
           // append loaded variants for weapons/magazines
           items = addLoadedVariants(items);
+          populateCategoryDropdown();
           renderItems();
           itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
         } catch (apiError) {
@@ -645,6 +643,7 @@
           })));
           // append loaded variants for weapons/magazines
           items = addLoadedVariants(items);
+          populateCategoryDropdown();
           renderItems();
           itemStatus.innerHTML = `Unable to load the local backup or the live API, so a starter item list is being used instead. ${escapeHtml(localError.message)} • ${escapeHtml(apiError.message)}`;
         }
@@ -937,9 +936,16 @@
     const clearCustomInputs = () => {
       if (ciName) ciName.value = '';
       if (ciCategory) ciCategory.value = '';
-      if (ciCost) ciCost.value = '';
       if (ciDescription) ciDescription.value = '';
       if (ciStatus) ciStatus.textContent = 'Create custom items to appear in the list for pricing and export.';
+    };
+
+    // populate category dropdown with existing categories (after items load)
+    const populateCategoryDropdown = () => {
+      if (!ciCategory) return;
+      // collect unique categories from current items
+      const cats = Array.from(new Set(items.map(i => (i.category || '').trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b, undefined, {sensitivity:'base'}));
+      ciCategory.innerHTML = '<option value="">-- Select category --</option>' + cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
     };
 
     const addCustomItem = () => {
@@ -951,7 +957,6 @@
       const obj = {
         name: ciName.value.trim(),
         category: ciCategory && ciCategory.value ? ciCategory.value.trim() : '',
-        cost: ciCost && ciCost.value ? Number(ciCost.value) : null,
         description: ciDescription && ciDescription.value ? ciDescription.value.trim() : '',
         shops: []
       };
