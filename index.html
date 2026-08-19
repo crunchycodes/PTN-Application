@@ -72,6 +72,26 @@
         <input id="discordName" type="text" placeholder="Discord username" />
       </label>
       <label>
+        In-Game Phone Number <span class="small">(required)</span>
+        <input id="inGamePhone" type="text" placeholder="Phone number (in-game)" required />
+      </label>
+      <label>
+        Bank Info <span class="small">(optional)</span>
+        <input id="bankInfo" type="text" placeholder="Bank account or payment info" />
+      </label>
+      <label>
+        Description <span class="small">(optional)</span>
+        <input id="profileDescription" type="text" placeholder="Short description for your shop/profile" />
+      </label>
+      <label>
+        Additional Services <span class="small">(optional)</span>
+        <input id="additionalServices" type="text" placeholder="Services offered (comma-separated)" />
+      </label>
+      <label>
+        Additional Shop Info <span class="small">(optional)</span>
+        <input id="additionalShopInfo" type="text" placeholder="Extra shop info" />
+      </label>
+      <label>
         Organization Name <span class="small">(optional)</span>
         <input id="organizationName" type="text" placeholder="Organization name" />
       </label>
@@ -178,6 +198,11 @@
       characterName: document.getElementById('characterName'),
       steamName: document.getElementById('steamName'),
       discordName: document.getElementById('discordName'),
+      inGamePhone: document.getElementById('inGamePhone'),
+      bankInfo: document.getElementById('bankInfo'),
+      profileDescription: document.getElementById('profileDescription'),
+      additionalServices: document.getElementById('additionalServices'),
+      additionalShopInfo: document.getElementById('additionalShopInfo'),
       profileImage: document.getElementById('profileImage'),
       organizationName: document.getElementById('organizationName'),
       organizationImage: document.getElementById('organizationImage')
@@ -277,6 +302,31 @@
         return { item: any, rounds: Object.values(ammoBoxRounds)[0] };
       }
       return null;
+    }
+
+    // Add loaded variant entries for weapon/magazine items.
+    // For each item in categories 'weaponry' or 'magazine(s)', create a duplicate
+    // with the name appended with ' (Loaded)' and an id like 'originalId.5'.
+    function addLoadedVariants(list) {
+      const extras = [];
+      for (const it of list) {
+        const cat = (it.category || '').toLowerCase();
+        if (cat === 'weaponry' || cat === 'magazines' || cat.includes('magazine')) {
+          const loadedId = `${it.id}.5`;
+          // avoid duplicates
+          if (list.find(x => String(x.id) === String(loadedId))) continue;
+          if (extras.find(x => String(x.id) === String(loadedId))) continue;
+          extras.push({
+            id: loadedId,
+            name: `${it.name} (Loaded)`,
+            category: it.category,
+            cost: it.cost != null ? Number(it.cost) : null,
+            shops: it.shops || [],
+            _sourceId: it.id
+          });
+        }
+      }
+      return list.concat(extras);
     }
 
     function computeCraftCostById(id, cache = craftCostCache, seen = new Set()) {
@@ -474,6 +524,8 @@
           cost: obj.cost != null ? Number(obj.cost) : null,
           shops: obj.shops || []
         })));
+        // append loaded variants for weapons/magazines
+        items = addLoadedVariants(items);
         renderItems();
         itemStatus.textContent = `Showing ${items.length} items from your local crafting backup. Enter your sell price in the right-hand column.`;
       } catch (localError) {
@@ -492,6 +544,8 @@
             cost: obj.cost != null ? Number(obj.cost) : null,
             shops: obj.shops || []
           })));
+          // append loaded variants for weapons/magazines
+          items = addLoadedVariants(items);
           renderItems();
           itemStatus.textContent = `Showing ${items.length} items from the live API. Enter your sell price in the right-hand column.`;
         } catch (apiError) {
@@ -504,6 +558,8 @@
             cost: obj.cost != null ? Number(obj.cost) : null,
             shops: obj.shops || []
           })));
+          // append loaded variants for weapons/magazines
+          items = addLoadedVariants(items);
           renderItems();
           itemStatus.innerHTML = `Unable to load the local backup or the live API, so a starter item list is being used instead. ${escapeHtml(localError.message)} • ${escapeHtml(apiError.message)}`;
         }
@@ -702,6 +758,11 @@
         characterName: profile.characterName,
         steamName: profile.steamName || null,
         discordName: profile.discordName || null,
+        phoneNumber: profile.inGamePhone || null,
+        bankInfo: profile.bankInfo || null,
+        description: profile.profileDescription || null,
+        additionalServices: profile.additionalServices || null,
+        additionalShopInfo: profile.additionalShopInfo || null,
         profileImage: profile.profileImage || null,
         organizationName: profile.organizationName || null,
         organizationImage: profile.organizationImage || null,
@@ -712,6 +773,10 @@
       const profile = getProfileData();
       if (!profile.characterName) {
         exportStatus.textContent = 'Character Name is required before exporting.';
+        return null;
+      }
+      if (!profile.phoneNumber) {
+        exportStatus.textContent = 'In-game Phone Number is required before exporting.';
         return null;
       }
       const pricedItems = items.map(item => ({
