@@ -64,6 +64,10 @@
         <input id="characterName" type="text" placeholder="Your character name" required />
       </label>
       <label>
+        Shop Name <span class="small">(optional)</span>
+        <input id="shopName" type="text" placeholder="Your shop name (displayed in export)" />
+      </label>
+      <label>
         Steam Profile URL <span class="small">(optional)</span>
         <input id="steamName" type="url" placeholder="https://steamcommunity.com/id/yourname" />
       </label>
@@ -193,6 +197,7 @@
     ];
     const profileInputs = {
       characterName: document.getElementById('characterName'),
+      shopName: document.getElementById('shopName'),
       steamName: document.getElementById('steamName'),
       discordName: document.getElementById('discordName'),
       inGamePhone: document.getElementById('inGamePhone'),
@@ -840,6 +845,7 @@
       const profile = Object.fromEntries(Object.entries(profileInputs).map(([key, input]) => [key, input.value.trim()]));
       return {
         characterName: profile.characterName,
+        shopName: profile.shopName || null,
         steamName: profile.steamName || null,
         discordName: profile.discordName || null,
         phoneNumber: profile.inGamePhone || null,
